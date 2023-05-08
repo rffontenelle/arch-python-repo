@@ -31,10 +31,10 @@ jobs:
           CURRENT: ${{ github.sha }}
         run: |
           if [[ "$EVENT" == 'workflow_dispatch' ]]; then
-              matrix="$(./list.py -e ${{ github.event.inputs.pkgs }})"
+              matrix="$(python list.py -e ${{ github.event.inputs.pkgs }})"
           else
               git fetch origin $BEFORE
-              matrix="$(./list.py -e $(git diff --name-only $BEFORE $CURRENT | sed 's|/.*||'))"
+              matrix="$(python list.py -e $(git diff --name-only $BEFORE $CURRENT | sed 's|/.*||'))"
           fi
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
           echo "Matrix: $matrix"
