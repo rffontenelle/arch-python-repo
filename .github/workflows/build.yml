@@ -1,5 +1,12 @@
 name: build
 on:
+  workflow_dispatch:
+    inputs:
+      pkgs:
+        description: package name(s) to build, separated by space. Defaults to all
+        type: 'string'
+        default: '*'
+        required: false
   push:
     branches:
       - main
@@ -8,6 +15,30 @@ on:
       - main
 
 jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v3
+
+      - name: Generate matrix
+        id: generate
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          CURRENT: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT" == 'workflow_dispatch' ]]; then
+              matrix="$(./list.py -e ${{ github.event.inputs.pkgs }})"
+          else
+              git fetch origin $BEFORE
+              matrix="$(./list.py -e $(git diff --name-only $BEFORE $CURRENT | sed 's|/.*||'))"
+          fi
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+          echo "Matrix: $matrix"
+
   build:
     runs-on: ubuntu-latest
     container:
@@ -18,15 +49,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: [35, 36, 37, 38, 39]
+        python: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
       max-parallel: 1
     steps:
       - name: Get date
         id: date
-        run: echo "::set-output name=date::$(date +%F)"
+        run: echo "date=$(date +%F)" >> $GITHUB_OUTPUT
 
       - name: Cache
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: /var/cache/pacman/pkg
           key: arch-pkgs-${{ steps.date.outputs.date }}
@@ -36,7 +67,7 @@ jobs:
         run: pacman -Syu --noconfirm --noprogressbar --needed base-devel devtools btrfs-progs dbus sudo git
 
       - name: Checkout main
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           path: main
 
@@ -49,7 +80,7 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE"/main
           git fetch origin $PREVIOUS
-          git diff --name-only $PREVIOUS $CURRENT | grep -q python$PY_VER && echo '::set-output name=run::true' || true
+          git diff --name-only $PREVIOUS $CURRENT | grep -q $PY_VER && echo 'run=true' >> $GITHUB_OUTPUT || true
 
       - name: Checkout repo
         if: steps.check.outputs.run == 'true'
@@ -66,7 +97,7 @@ jobs:
           git config --global user.name 'Github Actions'
           git config --global core.editor true
 
-      - name: Setup mkepkg configuration
+      - name: Setup makepkg configuration
         if: steps.check.outputs.run == 'true'
         run: |
           mkdir -p "$HOME"/{sources,srcpackages,makepkglogs}
@@ -89,7 +120,7 @@ jobs:
         env:
           PY_VER: ${{ matrix.python }}
         run: |
-          rm -f "$GITHUB_WORKSPACE"/repo/python$PY_VER*.pkg.*
+          rm -f "$GITHUB_WORKSPACE"/repo/$PY_VER*.pkg.*
 
       #- name: Fetch Python release PGP keys
       #  if: steps.check.outputs.run == 'true'
@@ -100,7 +131,7 @@ jobs:
         env:
           PY_VER: ${{ matrix.python }}
         run: |
-          cd "$GITHUB_WORKSPACE"/main/python$PY_VER
+          cd "$GITHUB_WORKSPACE"/main/$PY_VER
           extra-x86_64-build -- -U user -- --skippgpcheck
 
       - name: Generate repo database
@@ -109,7 +140,7 @@ jobs:
           PY_VER: ${{ matrix.python }}
         run: |
           cd "$GITHUB_WORKSPACE"/repo
-          repo-add python.db.tar.gz python$PY_VER*.pkg.*
+          repo-add python.db.tar.gz $PY_VER*.pkg.*
           rm -f *.old
 
       - name: Generate index.html for repo
