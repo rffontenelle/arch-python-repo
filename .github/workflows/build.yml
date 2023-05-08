@@ -5,7 +5,7 @@ on:
       pkgs:
         description: package name(s) to build, separated by space. Defaults to all
         type: 'string'
-        default: '*'
+        default: 'all'
         required: false
   push:
     branches:
@@ -31,7 +31,10 @@ jobs:
           CURRENT: ${{ github.sha }}
         run: |
           if [[ "$EVENT" == 'workflow_dispatch' ]]; then
-              matrix="$(python list.py -e ${{ github.event.inputs.pkgs }})"
+              if [[ -n "${{ github.event.inputs.pkgs }}" ]]; then
+                  ARGS="-e ${{ github.event.inputs.pkgs }}"
+              fi
+              matrix="$(python list.py $ARGS)"
           else
               git fetch origin $BEFORE
               matrix="$(python list.py -e $(git diff --name-only $BEFORE $CURRENT | sed 's|/.*||'))"
