@@ -13,7 +13,13 @@ parser.add_argument('--elements', '-e',
 
 args = parser.parse_args()
 
-print(json.dumps(sorted([
+matrix = json.dumps(sorted([
     node for node in args.elements
     if os.path.isdir(node) and 'PKGBUILD' in os.listdir(node)
-])))
+]))
+
+try:
+  assert len(matrix) != 2
+  print(matrix)
+except AssertionError:
+  sys.exit('Error: Got empty list.')
